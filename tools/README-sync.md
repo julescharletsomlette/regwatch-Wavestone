@@ -1,0 +1,158 @@
+# Synchronisation classeur comparatif → fiches pays
+
+Sens unique : **le classeur sur SharePoint fait foi**, RegWatch en est un miroir
+en lecture. Rien n'est jamais réécrit dans le classeur - ni par le code, ni par
+l'outil. C'est ce qui garantit que les formules, la mise en forme conditionnelle
+et les slicers du classeur client ne peuvent pas être abîmés par un bug d'ici.
+
+## La chaîne
+
+```
+SharePoint ──(1)──> copie locale ──(2)──> src/data_excel.js ──(3)──> le site
+```
+
+Tout se lance depuis **le dossier du projet**, dans le Terminal, avec le
+`venv/` du projet - le python du système n'a pas `requests` :
+
+```bash
+cd ~/regwatch
+
+# 1. récupérer le classeur depuis SharePoint (Microsoft Graph, lecture seule)
+./venv/bin/python tools/sharepoint_fetch.py
+
+# 2. l'importer via la cartographie des champs
+./venv/bin/python tools/excel_to_countries.py data/.cache/comparative.xlsx
+
+# 3. reconstruire le site
+zsh src/build.sh
+```
+
+La copie locale atterrit dans `data/.cache/`, qui est ignoré par git - comme le
+cache de jeton, qui contient un jeton de rafraîchissement.
+
+## Ce qu'il faut obtenir de l'IT avant que ça tourne
+
+`sharepoint_fetch.py` est écrit et son encodage de lien est vérifié, mais il n'a
+pas encore été exécuté contre le vrai SharePoint : cela demande des éléments que
+nous n'avons pas.
+
+| | Pour démarrer (code d'appareil) | Pour planifier (app-only) |
+|---|---|---|
+| Inscription d'application Entra ID | souhaitable | **obligatoire** |
+| Permission | `Sites.Read.All` **déléguée** | **`Sites.Selected`** (application) |
+| Portée réelle | ce que vous pouvez déjà ouvrir | **un seul site**, autorisé par l'admin |
+| Consentement administrateur | non | **oui** |
+| Intervention humaine | une connexion, puis silence | aucune |
+
+### La permission à demander : `Sites.Selected`, jamais `Files.Read.All`
+
+En **délégué**, l'application agit en votre nom : elle ne peut atteindre aucun
+fichier que vous ne pouvez pas déjà ouvrir. Aucune exposition nouvelle.
+
+En **application**, il n'y a plus d'utilisateur derrière. `Files.Read.All`
+signifierait alors *tous les fichiers du tenant*, sites privés compris - hors de
+question pour lire un classeur. `Sites.Selected` n'accorde **rien** par défaut :
+un administrateur autorise ensuite l'application sur les seuls sites choisis. La
+restriction tient à la configuration du tenant, pas à la bonne conduite du code.
+
+Le brouillon de demande est dans `tools/demande-IT.md`.
+
+### Avant le premier lancement
+
+Le `venv/` du projet et le `.env` sont déjà en place. Si tu repars d'un clone :
+
+```bash
+python3 -m venv venv
+./venv/bin/pip install requests openpyxl
+cp .env.example .env      # puis renseigner l'URL et le tenant
+```
+
+`.env` et `venv/` sont ignorés par git.
+
+**Commence par le code d'appareil.** Il fonctionne sur un compte ordinaire, sans
+consentement administrateur : tu signes une fois dans le navigateur, le jeton de
+rafraîchissement est mis en cache, les exécutions suivantes sont silencieuses.
+C'est suffisant pour prouver la chaîne de bout en bout.
+
+L'app-only est la cible pour la synchro planifiée, mais il demande une
+inscription d'application et un consentement administrateur - donc l'IT.
+
+### Configuration
+
+```
+SHAREPOINT_FILE_URL=<le lien « Copier le lien » du classeur dans SharePoint>
+GRAPH_TENANT_ID=<identifiant de tenant, ou wavestone.com>
+GRAPH_CLIENT_ID=<inscription d'application>          # optionnel en test
+GRAPH_CLIENT_SECRET=<secret>                         # app-only uniquement
+```
+
+Pas d'identifiant de site ni de drive à chercher : Graph résout le lien de
+partage directement.
+
+En l'absence de `GRAPH_CLIENT_ID`, le script utilise le client public d'Azure
+CLI pour prouver la plomberie. **À remplacer par une inscription Wavestone avant
+toute planification** - un outil interne ne doit pas s'authentifier sous
+l'identité d'un client Microsoft.
+
+## Ce que l'import fait, et ne fait pas
+
+Il **ajoute** ce que la fiche pays n'a pas : sept champs typés et deux sections
+entières (sanctions, autorités détaillées).
+
+Il **n'écrase pas** les champs existants. La comparaison classeur / fiches donne
+145 valeurs concordantes et **132 divergentes**, de deux natures :
+
+- le classeur est plus succinct et la fiche enrichie - écraser perdrait de
+  l'information ;
+- les deux se contredisent sur un fait - quelqu'un doit arbitrer.
+
+Tant que cet arbitrage n'a pas eu lieu, appliquer mécaniquement « le classeur
+fait foi » dégraderait l'outil sur la moitié des champs, sans que personne ne le
+voie. La réconciliation est la seconde moitié du travail.
+
+---
+
+## Depuis quel poste ? (et faut-il tout cloner ?)
+
+Seule **l'étape 1** a besoin du poste professionnel : c'est la seule qui
+s'authentifie auprès de SharePoint. Les étapes 2 et 3 travaillent sur un fichier
+déjà téléchargé et tournent n'importe où.
+
+### Le plus simple aujourd'hui : pas de Graph du tout
+
+Pour rafraîchir les fiches maintenant, **télécharge le classeur à la main**
+depuis SharePoint (Fichier → Télécharger une copie), pose-le où tu veux, et
+lance l'import dessus :
+
+```bash
+./venv/bin/python tools/excel_to_countries.py ~/Downloads/CYBER\ WATCH5_Technical\ inventory.xlsx
+zsh src/build.sh
+```
+
+C'est légitime : c'est ton fichier, tu y as accès. Dix secondes, aucune
+permission à demander. **Microsoft Graph ne sert qu'à supprimer ce geste manuel**,
+c'est-à-dire pour la synchronisation planifiée, qui doit tourner sans personne
+devant.
+
+### Si tu veux quand même tester Graph depuis le poste pro
+
+Inutile de cloner le dépôt. `sharepoint_fetch.py` est **autonome** : un seul
+fichier, `requests` pour seule dépendance non standard. Vérifié hors du dépôt.
+
+1. Copie `tools/sharepoint_fetch.py` sur le poste pro (mail, clé, Teams).
+2. `pip install requests` (ou `python -m pip install --user requests`).
+3. ```
+   python sharepoint_fetch.py -o classeur.xlsx
+   ```
+   en ayant défini `SHAREPOINT_FILE_URL` et `GRAPH_TENANT_ID`, ou en passant
+   l'URL à `--check` pour vérifier d'abord.
+4. Rapatrie le `.xlsx` obtenu et reprends à l'étape 2 sur ton poste.
+
+Cloner un dépôt GitHub personnel sur une machine d'entreprise peut par ailleurs
+poser une question de politique interne : un fichier copié n'en pose aucune.
+
+### Cloner tout le dépôt, quand ?
+
+Le jour où l'outil sera hébergé et la synchro planifiée, tout tournera côté
+serveur et la question disparaîtra. Cloner sur le poste pro n'a d'intérêt que si
+tu veux y faire du développement.

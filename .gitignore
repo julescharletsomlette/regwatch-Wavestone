@@ -1,0 +1,44 @@
+# Systeme
+.DS_Store
+
+# Artefacts de construction : regenerer avec `zsh src/build.sh`
+src/bundle.js
+src/bundle-equipe.js
+src/regwatch-artifact.html
+src/artifact-equipe.html
+src/shell_client.html
+src/regwatch.html
+src/regwatch-equipe.html
+src/test_*.html
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Identifiants : jamais de commit. Les cles Azure OpenAI de l'agent de veille
+# vivent dans un .env qui reste sur la machine qui execute l'agent.
+.env
+.env.*
+*.env
+!.env.example
+
+# Documents de travail internes et medias lourds : gardes hors du depot.
+# GitHub Pages sert tout l'arbre du depot, donc un fichier commite ici
+# repondrait 200 a qui connait l'URL.
+ressources/
+*.mp4
+*.pptx
+
+# Sorties generees
+out/
+logs/
+
+# Cache de jetons et classeur rapatrie depuis SharePoint.
+# graph-token.json contient un jeton de rafraichissement : jamais de commit.
+data/.cache/
+
+# Reglages locaux du proxy Azure : ils portent la cle.
+azure-proxy/local.settings.json
+azure-proxy/.python_packages/

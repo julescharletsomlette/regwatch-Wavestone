@@ -1,0 +1,13 @@
+# Dependances de la chaine de collecte et des outils (agent-veille/ et tools/).
+# Le proxy Azure a les siennes, dans azure-proxy/requirements.txt.
+#
+#   python3 -m venv venv
+#   ./venv/bin/pip install -r requirements.txt
+
+requests           # appels HTTP : sources, SharePoint, proxy
+feedparser         # lecture des flux RSS et Atom
+beautifulsoup4     # extraction du texte des pages collectees
+openai             # client Azure OpenAI (score et analyse des items)
+openpyxl           # lecture et ecriture des classeurs Excel
+python-pptx        # generation des supports de presentation par pays
+ftfy               # reparation des encodages abimes dans les sources
